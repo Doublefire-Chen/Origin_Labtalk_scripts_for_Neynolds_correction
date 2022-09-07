@@ -1,0 +1,113 @@
+////////////////////配置区////////////////////
+time_={}; //请输入您的时间数据
+temperature={}; //请输入您的温度参数
+unit_flag=0; //时间单位为s请输入0，为min请输入1
+/////////////////////////////////////////////
+/*    配置区样例
+time_={0,1,2,3,4,5,6,7,8,9,10,10.25,10.5,10.75,11,11.25,11.5,11.75,12,12.25,12.5,12.75,13,14,15,16,17,18};
+temperature={0.335,0.350,0.365,0.380,0.395,0.412,0.427,0.443,0.460,0.475,0.491,0.550,0.600,0.750,0.900,1.100,1.350,1.500,1.720,1.850,1.930,2.000,2.050,2.140,2.190,2.215,2.240,2.250};
+unit_flag=0;
+*/
+if ((Count(time_)!=Count(temperature))) type -b "时间数据（$(Count(Time_))个）与温度数据数量（$(Count(temperature))个）不相等，请检查数据"; //检查数据输入是否正确
+for (i=1;i<Count(time_);i++) //检查数据输入是否正确
+{
+	if (time_[i]>=time_[i+1]) type -b "时间数据不是按照时间顺序输入的，请检查数据";
+};
+if (unit_flag==0) time_=time_/60; //转化时间单位为min
+newbook; //新建工作簿
+string bookName$ = %H; //保存工作簿名称
+string wksName$ = bookName$!layer$(1).name$; // 拿到当前工作表的名字
+col(1)[L]$="time"; //设置列名称
+col(1)[U]$="min"; //设置列单位
+col(1)=time_; //填入数据
+col(2)[L]$="temperature"; //设置列名称
+col(2)[U]$=\+(o)C; //设置列单位
+col(2)=temperature; //填入数据
+range aa=1!2; //选取单元格
+fitLR iy:=aa n:=3; //对前三个数据进行线性回归
+tmp_r=fitLR.r; //临时变量存储相关系数r
+for (i=4;i<Count(time_);i++) //循环求出最佳线性拟合范围
+{
+	fitLR iy:=aa n:=i;
+	r=fitLR.r;
+	if(abs(r)>abs(tmp_r)) {tmp_r=r;continue;}; //如果添加数据点后的线性关系更好，就继续
+	if(abs(tmp_r)-abs(r)>0.01) break; //如果添加数据点后使r绝对值减少量大于0.01，就停止加点
+	if(abs(r)<0.95) break; //如果添加数据点后使r绝对值小于0.95，就停止加点
+	tmp_r=r;
+};
+r1=tmp_r; //存储r值
+ti=i-1; //存储ti
+fitLR iy:=aa n:=ti; //对最佳范围进行拟合
+ki=fitLR.b; //获取拟合出的斜率
+if(r1==None) ki=0; //如果拟合出的直线为水平线，则ki=0
+bi=temperature[ti]-time_[ti]*ki; //求过斜率为ki且过点(ti,Ti)的直线的纵截距
+fitLR iy:=aa n:=-3; //对后三个数据点进行线性回归
+tmp_r=fitLR.r; //临时变量存储r值
+for (i=-4;i>-Count(time_);i--) //循环求出最佳线性拟合范围
+{
+	fitLR iy:=aa n:=i;
+	r=fitLR.r;
+	if(abs(r)>abs(tmp_r)) {tmp_r=r;continue;}; //如果添加数据点后的线性关系更好，就继续
+	if(abs(tmp_r)-abs(r)>0.01) break; //如果添加数据点后使r绝对值减少量大于0.01，就停止加点
+	if(abs(r)<0.95) break; //如果添加数据点后使r绝对值小于0.95，就停止加点
+	tmp_r=r;
+};
+r2=tmp_r; //存储r值
+tf=Count(time_)+i+2; //存储tf值
+fitLR iy:=aa n:=i+1; //对最佳范围进行拟合
+kf=fitLR.b; //获取拟合出的斜率
+if(r2==None) kf=0; //如果拟合出的直线为水平线，则kf=0
+bf=temperature[tf]-time_[tf]*kf; //求过斜率为kf且过点(tf,Tf)的直线的纵截距
+wks.nCols = wks.nCols + 2; //新增两列
+col(3)=data(time_[1],time_[0],0.001); //为绘制直线填入点的坐标
+col(4)=col(C)*ki+bi;
+col(5)=col(C)*kf+bf;
+plotxy iy:=[%(bookName$)]%(wksName$)!(1,2) plot:=202 ogl:=1; //绘制曲线
+plotxy iy:=[%(bookName$)]%(wksName$)!(3,4) plot:=200 ogl:=1; //绘制第一条拟合的直线
+plotxy iy:=[%(bookName$)]%(wksName$)!(3,5) plot:=200 ogl:=1; //绘制第二条拟合的直线
+themeApply2g theme:="plot+line"; //应用保存好的主题模板，主要目的是使曲线拟合方式为B-spline，使纵坐标从0开始，附带设置了一些格式，调整曲线的宽度为1.5磅，颜色为黑色，直线的宽度为1磅，颜色为红色，样式为虚线
+string graphName$ = %H; //存储绘图窗口名称
+integ1 -r 2 iy:=[%(graphName$)]1!1"temperature"[ti:tf]; //求出温度-时间曲线从ti到tf的积分
+win -a %(bookName$); //激活数据窗口
+S=max(col(6)); //获取积分的值
+win -a %(graphName$); //激活绘图窗口
+window -z; //窗口最大化
+td=(S+temperature[ti]*time_[ti]-temperature[tf]*time_[tf])/(temperature[ti]-temperature[tf]); //带入等式（14）求出td
+T0=td*ki+bi; //求出T0
+T1=td*kf+bf; //求出T1
+deltaT=T1-T0; //求出温度差
+win -a  %(bookName$); //激活数据窗口
+wks.nCols = wks.nCols + 11; //新增11列
+col(8)=data(temperature[1],temperature[0],0.001); //下面都是为绘图填入数据点的数据
+col(7)=col(8)+td-col(8);
+col(9)=data(td,time_[tf],0.001);
+col(10)=col(9)+temperature[tf]-col(9);
+col(11)=data(0,td,0.001);
+col(12)=col(11)+T1-col(11);
+col(13)=data(0,td,0.001);
+col(14)=col(13)+T0-col(13);
+col(15)=data(time_[ti],td,0.001);
+col(16)=col(15)+temperature[ti]-col(15);
+col(17)={round(td,3),round(T1,3),round(T0,3)};
+win -a %(graphName$); //激活绘图窗口
+plotxy iy:=[%(bookName$)]%(wksName$)!(7,8) plot:=200 ogl:=1; //绘制辅助线
+plotxy iy:=[%(bookName$)]%(wksName$)!(9,10) plot:=200 ogl:=1; //绘制辅助线
+plotxy iy:=[%(bookName$)]%(wksName$)!(11,12) plot:=200 ogl:=1; //绘制辅助线
+plotxy iy:=[%(bookName$)]%(wksName$)!(13,14) plot:=200 ogl:=1; //绘制辅助线
+plotxy iy:=[%(bookName$)]%(wksName$)!(15,16) plot:=200 ogl:=1; //绘制辅助线
+label -r Legend; //删除所有图例，因为实在太多了，如果有需要可以后续添加
+themeApply2g theme:="line"; //应用主题模板，主要是设置辅助线的格式，宽度为1磅，样式为虚线，颜色为黑灰色
+label -sl -n td_label "td=%([%(bookName$)]%(wksName$), @WL, 17[1])"; //添加标签
+label -sl -n T1_label "T1=%([%(bookName$)]%(wksName$), @WL, 17[2])"; //添加标签
+label -sl -n T0_label "T0=%([%(bookName$)]%(wksName$), @WL, 17[3])"; //添加标签
+themeApply2g theme:="label"; //应用主题模板，调整标签的锚定位置为左下角和大小为28
+td_label.x1 = td; //下面都是调整标签位置
+td_label.y1 = temperature[1];
+T1_label.x1 = 0;
+T1_label.y1 = T1;
+T0_label.x1 = 0;
+T0_label.y1 = T0;
+type 雷诺作图法校正后的温差为$(deltaT)K; //输出数据，下同
+if (r1==None or r2==None) type "r值为--表示拟合出的线是一条完美的水平线";
+type 线性拟合1："y=$(ki)x+$(bi) r=$(r1)";
+type 线性拟合2："y=$(kf)x+$(bf) r=$(r2)";
